@@ -11,6 +11,7 @@ pub struct InfOpr {
     opr: String,
 }
 
+#[derive(Clone)]
 pub struct Parser {
     pub infix: Vec<InfOpr>,
 }

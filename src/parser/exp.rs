@@ -97,14 +97,16 @@ impl Parser {
     pub fn reginfixexp(
         &mut self,
     ) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        |s: &str| {
+        let clone = self.clone();
+        move |s: &str| {
+            let ident_exept_infopr = clone.ident_except_infopr();
             map(
                 tuple((
                     tag(define::INFIX),
                     multispace1,
                     self.real(),
                     multispace1,
-                    self.ident_except_infopr(),
+                    ident_exept_infopr,
                 )),
                 |(_, _, d, _, identifier)| {
                     match d {
