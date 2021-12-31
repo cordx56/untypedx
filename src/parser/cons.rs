@@ -24,7 +24,7 @@ impl Parser {
     pub fn cons(&self) -> impl FnMut(&str) -> IResult<&str, Cons, VerboseError<&str>> + '_ {
         |s: &str| alt((self.real(), self.string()))(s)
     }
-    pub fn real(&self) -> impl FnMut(&str) -> IResult<&str, Cons, VerboseError<&str>> + '_ {
+    pub fn real<'a>(&self) -> impl FnMut(&'a str) -> IResult<&'a str, Cons, VerboseError<&'a str>> + 'a {
         |s: &str| map(double, |number: f64| -> Cons { Cons::Real(number) })(s)
     }
     pub fn string(&self) -> impl FnMut(&str) -> IResult<&str, Cons, VerboseError<&str>> + '_ {
