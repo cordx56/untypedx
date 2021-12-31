@@ -1,8 +1,10 @@
-pub mod parser;
 pub mod define;
+pub mod parser;
 
 fn main() {
     let p = parser::Parser::new();
-    let exp = p.exp()("test + 1");
-    println!("{:?}", exp);
+    println!("{:?}", p.exp()("test + 1 * 2"));
+    println!("{:?}", p.exp()("test * 1 - 2"));
+    println!("{:?}", p.exp()("test 2"));
+    println!("{:?}", p.exp()("let x = 1"));
 }

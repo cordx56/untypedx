@@ -12,7 +12,7 @@ use nom::{
 
 use super::cons::Cons;
 use super::stmt::Stmts;
-use super::{ Parser, InfOpr };
+use super::{InfOpr, Parser};
 use crate::define;
 
 #[derive(Debug, Clone)]
@@ -22,8 +22,10 @@ pub enum Exp {
     UnTyped(Box<Exp>),
     Block(Stmts),
 
-    AppExp(Box<Exp>, Box<Exp>),
-    InfExp(Box<Exp>, InfOpr, Box<Exp>),
+    App(Box<Exp>, Box<Exp>),
+    Inf(Box<Exp>, InfOpr, Box<Exp>),
+
+    RegInfix(String),
 }
 
 impl Parser {
@@ -31,7 +33,7 @@ impl Parser {
         |s: &str| {
             alt((
                 map(self.cons(), |cons| Exp::Cons(cons)),
-                map(self.ident(), |ident| Exp::Ident(ident)),
+                map(self.ident_except_infopr(), |ident| Exp::Ident(ident)),
                 map(
                     tuple((
                         tag(define::EXPRESSION_OPEN),
@@ -50,27 +52,19 @@ impl Parser {
             map(
                 tuple((
                     self.atexp(),
-                    many0(
-                        map(
-                            tuple((
-                                multispace1,
-                                self.atexp(),
-                            )),
-                            |(_, exp)| exp
-                        )
-                    )
+                    many0(map(tuple((multispace1, self.atexp())), |(_, exp)| exp)),
                 )),
                 |(exp, exp_vec)| {
                     if 0 < exp_vec.len() {
-                        let mut result = Exp::AppExp(Box::new(exp), Box::new(exp_vec[0].clone()));
+                        let mut result = Exp::App(Box::new(exp), Box::new(exp_vec[0].clone()));
                         for i in 1..exp_vec.len() {
-                            result = Exp::AppExp(Box::new(result), Box::new(exp_vec[i].clone()));
+                            result = Exp::App(Box::new(result), Box::new(exp_vec[i].clone()));
                         }
                         result
                     } else {
                         exp
                     }
-                }
+                },
             )(s)
         }
     }
@@ -80,11 +74,11 @@ impl Parser {
                 tuple((
                     self.appexp(),
                     many0(map(
-                        tuple((multispace0, self.infopr(), multispace0, self.infexp())),
+                        tuple((multispace0, self.infopr(), multispace0, self.appexp())),
                         |(_, infopr, _, infexp)| (infopr, infexp),
                     )),
                 )),
-                |(appexp, opr_exp_tuple_vec)| self.rebuild_tree(&appexp, &opr_exp_tuple_vec),
+                |(appexp, opr_exp_tuple_vec)| self.rebuild_tree(appexp, opr_exp_tuple_vec),
             )(s)
         }
     }
@@ -96,6 +90,31 @@ impl Parser {
             map(
                 tuple((tag(define::UNTYPED), multispace0, self.exp())),
                 |(_, _, exp)| Exp::UnTyped(Box::new(exp)),
+            )(s)
+        }
+    }
+
+    pub fn reginfixexp(
+        &mut self,
+    ) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+        |s: &str| {
+            map(
+                tuple((
+                    tag(define::INFIX),
+                    multispace1,
+                    self.real(),
+                    multispace1,
+                    self.ident_except_infopr(),
+                )),
+                |(_, _, d, _, identifier)| {
+                    match d {
+                        Cons::Real(v) => {
+                            self.push_infix(true, v as usize, identifier.clone());
+                        }
+                        _ => {}
+                    }
+                    Exp::RegInfix(identifier)
+                },
             )(s)
         }
     }

@@ -10,9 +10,9 @@ use nom::{
     Err, IResult,
 };
 
+use super::exp::Exp;
 use super::InfOpr;
 use super::Parser;
-use super::exp::Exp;
 
 impl Parser {
     pub fn infopr(&self) -> impl FnMut(&str) -> IResult<&str, InfOpr, VerboseError<&str>> + '_ {
@@ -31,33 +31,29 @@ impl Parser {
     }
 
     // Rebuild AST using shunting-yard algorithm
-    pub fn rebuild_tree(
-        &self,
-        left: &Exp,
-        tail: &[(InfOpr, Exp)],
-    ) -> Exp {
+    pub fn rebuild_tree(&self, left: Exp, tail: Vec<(InfOpr, Exp)>) -> Exp {
         let mut operands = Vec::new();
         let mut operators: Vec<(InfOpr, usize)> = Vec::new();
-        operands.push(left.clone());
-        for (opr, elem) in tail {
-            let p = opr.pred;
-            let p_left = opr.is_left;
+        operands.push(left);
+        for (next_opr, next_elem) in tail {
+            let p = next_opr.pred;
+            let p_left = next_opr.is_left;
             while !operators.is_empty()
                 && ((p_left && p <= operators.last().unwrap().1) || p < operators.last().unwrap().1)
             {
                 let (opr, _) = operators.pop().unwrap();
                 let r2 = operands.pop().unwrap();
                 let r1 = operands.pop().unwrap();
-                operands.push(Exp::InfExp(Box::new(r1), opr, Box::new(r2)));
+                operands.push(Exp::Inf(Box::new(r1), opr, Box::new(r2)));
             }
-            operators.push((opr.clone(), p));
-            operands.push(elem.clone());
+            operators.push((next_opr, p));
+            operands.push(next_elem);
         }
         while !operators.is_empty() {
             let (opr, _) = operators.pop().unwrap();
             let r2 = operands.pop().unwrap();
             let r1 = operands.pop().unwrap();
-            operands.push(Exp::InfExp(Box::new(r1), opr, Box::new(r2)));
+            operands.push(Exp::Inf(Box::new(r1), opr, Box::new(r2)));
         }
         let ast = operands.pop().unwrap();
         ast

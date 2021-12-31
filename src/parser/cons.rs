@@ -1,4 +1,5 @@
 use super::Parser;
+use crate::define;
 use nom::{
     branch::{alt, permutation},
     bytes::complete::{escaped_transform, is_not, tag, take_while_m_n},
@@ -11,7 +12,6 @@ use nom::{
     IResult,
 };
 use std::char::{decode_utf16, REPLACEMENT_CHARACTER};
-use crate::define;
 
 #[derive(Debug, Clone)]
 pub enum Cons {
@@ -69,9 +69,10 @@ impl Parser {
     }
     pub fn string_empty(&self) -> impl FnMut(&str) -> IResult<&str, Cons, VerboseError<&str>> + '_ {
         |s: &str| {
-            map(permutation((tag(define::STRING_QUOTE), tag(define::STRING_QUOTE))), |(_, _)| {
-                Cons::String("".to_owned())
-            })(s)
+            map(
+                permutation((tag(define::STRING_QUOTE), tag(define::STRING_QUOTE))),
+                |(_, _)| Cons::String("".to_owned()),
+            )(s)
         }
     }
 }

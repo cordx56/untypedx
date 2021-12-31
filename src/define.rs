@@ -6,7 +6,7 @@ pub static BLOCK_OPEN: &str = "{";
 pub static BLOCK_CLOSE: &str = "}";
 pub static INDEX_OPEN: &str = "[";
 pub static INDEX_CLOSE: &str = "]";
-pub static PARSER_NOT_IDENTIFIER: &str = " \t\r\n(){}[]";
+pub static PARSER_NOT_IDENTIFIER: &str = " \t\r\n(){}[]<>";
 pub static STRING_QUOTE: &str = "\"";
 
 // Type name
@@ -19,10 +19,11 @@ pub static MAP: &str = "map";
 pub static FUNCTION: &str = "function";
 pub static VOID: &str = "void";
 
+pub static FUNCTION_ARROW: &str = "->";
+
 // Variables
 pub static TRUE: &str = "true";
 pub static FALSE: &str = "false";
-
 
 // Functions
 pub static IMPORT: &str = "import";
@@ -59,7 +60,10 @@ pub static LESS_EQUAL: &str = "<=";
 // Others
 pub static IF: &str = "if";
 pub static LOOP: &str = "loop";
+pub static INFIX: &str = "infix";
+pub static INFIXR: &str = "infixr";
 
+pub static IDENTIFIER_NOT_ALLOWED: &[&str] = &[FUNCTION_ARROW, INFIX, INFIXR];
 
 // Error messages
 pub static IDENTIFIER_NOT_DEFINED: &str = "Identifier not defined";
