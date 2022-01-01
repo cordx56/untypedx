@@ -2,6 +2,7 @@ pub mod cons;
 pub mod exp;
 pub mod ident;
 pub mod infix;
+pub mod ty;
 pub mod stmt;
 
 #[derive(Debug, Clone)]

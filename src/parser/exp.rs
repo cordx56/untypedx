@@ -25,7 +25,9 @@ pub enum Exp {
     App(Box<Exp>, Box<Exp>),
     Inf(Box<Exp>, InfOpr, Box<Exp>),
 
-    RegInfix(String),
+    Fn(Vec<String>, Box<Exp>),
+
+    RegInfix(InfOpr),
 }
 
 impl Parser {
@@ -44,6 +46,8 @@ impl Parser {
                     )),
                     |(_, _, exp, _, _)| exp,
                 ),
+                self.blockexp(),
+                self.fnexp(),
             ))(s)
         }
     }
@@ -52,7 +56,7 @@ impl Parser {
             map(
                 tuple((
                     self.atexp(),
-                    many0(map(tuple((multispace1, self.atexp())), |(_, exp)| exp)),
+                    many0(map(tuple((space1, self.atexp())), |(_, exp)| exp)),
                 )),
                 |(exp, exp_vec)| {
                     if 0 < exp_vec.len() {
@@ -74,7 +78,7 @@ impl Parser {
                 tuple((
                     self.appexp(),
                     many0(map(
-                        tuple((multispace0, self.infopr(), multispace0, self.appexp())),
+                        tuple((space0, self.infopr(), space0, self.appexp())),
                         |(_, infopr, _, infexp)| (infopr, infexp),
                     )),
                 )),
@@ -83,39 +87,74 @@ impl Parser {
         }
     }
     pub fn exp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        self.infexp()
+        move |s: &str| alt((self.infexp(), self.untypedexp()))(s)
     }
+
     pub fn untypedexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
         |s: &str| {
             map(
-                tuple((tag(define::UNTYPED), multispace0, self.exp())),
+                tuple((tag(define::UNTYPED), space0, self.exp())),
                 |(_, _, exp)| Exp::UnTyped(Box::new(exp)),
             )(s)
         }
     }
-
-    pub fn reginfixexp(
-        &mut self,
-    ) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        let clone = self.clone();
-        move |s: &str| {
-            let ident_exept_infopr = clone.ident_except_infopr();
+    pub fn blockexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+        |s: &str| {
             map(
                 tuple((
-                    tag(define::INFIX),
-                    multispace1,
-                    self.real(),
-                    multispace1,
-                    ident_exept_infopr,
+                    tag(define::BLOCK_OPEN),
+                    multispace0,
+                    self.stmts(),
+                    multispace0,
+                    tag(define::BLOCK_CLOSE),
                 )),
-                |(_, _, d, _, identifier)| {
-                    match d {
-                        Cons::Real(v) => {
-                            self.push_infix(true, v as usize, identifier.clone());
-                        }
-                        _ => {}
-                    }
-                    Exp::RegInfix(identifier)
+                |(_, _, stmts, _, _)| Exp::Block(stmts),
+            )(s)
+        }
+    }
+
+    pub fn fnexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+        move |s: &str| {
+            map(
+                tuple((
+                    tag(define::FN),
+                    many0(map(
+                        tuple((space1, self.ident_except_infopr())),
+                        |(_, ident)| ident,
+                    )),
+                    space0,
+                    tag(define::FN_ARROW),
+                    space0,
+                    self.exp(),
+                )),
+                |(_, args, _, _, _, exp)| Exp::Fn(args, Box::new(exp)),
+            )(s)
+        }
+    }
+
+    pub fn reginfexp(&mut self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+        let clone = self.clone();
+        move |s: &str| {
+            let ident_except_infopr = clone.ident_except_infopr();
+            map(
+                tuple((
+                    alt((
+                        map(tag(define::INFIX), |_| true),
+                        map(tag(define::INFIXR), |_| false),
+                    )),
+                    space1,
+                    self.int(),
+                    space1,
+                    ident_except_infopr,
+                )),
+                |(is_left, _, d, _, identifier)| {
+                    let pred = d as usize;
+                    self.push_infix(is_left, pred, identifier.clone());
+                    Exp::RegInfix(InfOpr {
+                        is_left: is_left,
+                        pred: pred,
+                        opr: identifier,
+                    })
                 },
             )(s)
         }

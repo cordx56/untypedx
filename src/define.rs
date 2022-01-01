@@ -1,4 +1,4 @@
-pub static VERSION: &str = "0.3.0-beta";
+pub static VERSION: &str = "0.1.0";
 // Special
 pub static EXPRESSION_OPEN: &str = "(";
 pub static EXPRESSION_CLOSE: &str = ")";
@@ -8,6 +8,9 @@ pub static INDEX_OPEN: &str = "[";
 pub static INDEX_CLOSE: &str = "]";
 pub static PARSER_NOT_IDENTIFIER: &str = " \t\r\n(){}[]<>";
 pub static STRING_QUOTE: &str = "\"";
+pub static STATEMENT_END: &str = "\n";
+pub static FN: &str = "fn";
+pub static FN_ARROW: &str = "=>";
 
 // Type name
 pub static STRING: &str = "string";
@@ -19,7 +22,7 @@ pub static MAP: &str = "map";
 pub static FUNCTION: &str = "function";
 pub static VOID: &str = "void";
 
-pub static FUNCTION_ARROW: &str = "->";
+pub static FUNCTION_TYPE_ARROW: &str = "->";
 
 // Variables
 pub static TRUE: &str = "true";
@@ -57,13 +60,16 @@ pub static LESS: &str = "<";
 pub static GREATER_EQUAL: &str = ">=";
 pub static LESS_EQUAL: &str = "<=";
 
+// Constant
+pub static MINUS_SIGN: &str = "-";
+
 // Others
 pub static IF: &str = "if";
 pub static LOOP: &str = "loop";
 pub static INFIX: &str = "infix";
 pub static INFIXR: &str = "infixr";
 
-pub static IDENTIFIER_NOT_ALLOWED: &[&str] = &[FUNCTION_ARROW, INFIX, INFIXR];
+pub static IDENTIFIER_NOT_ALLOWED: &[&str] = &[FUNCTION_TYPE_ARROW, FN_ARROW, FN, INFIX, INFIXR];
 
 // Error messages
 pub static IDENTIFIER_NOT_DEFINED: &str = "Identifier not defined";
