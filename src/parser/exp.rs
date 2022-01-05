@@ -11,28 +11,44 @@ use nom::{
 };
 
 use super::cons::Cons;
+use super::infix::InfOpr;
 use super::stmt::Stmts;
-use super::{InfOpr, Parser};
+use super::ty::Ty;
+use super::Parser;
 use crate::define;
 
 #[derive(Debug, Clone)]
 pub enum Exp {
     Cons(Cons),
     Ident(String),
+    Tuple(Vec<Exp>),
     UnTyped(Box<Exp>),
     Block(Stmts),
 
     App(Box<Exp>, Box<Exp>),
     Inf(Box<Exp>, InfOpr, Box<Exp>),
 
-    Fn(Vec<String>, Box<Exp>),
+    Fn(Vec<(Fn)>),
 
-    RegInfix(InfOpr),
+    TypeAnnotated(Box<Exp>, Ty),
+}
+
+#[derive(Debug, Clone)]
+pub struct Fn(Vec<Pattern>, Exp);
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    Wildcard,
+    Cons(Cons),
+    Ident(String),
+    Tuple(Vec<Pattern>),
+    TypeAnnotated(Box<Pattern>, Ty),
 }
 
 impl Parser {
     pub fn atexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        |s: &str| {
+        let mut clone = self.clone();
+        move |s: &str| {
             alt((
                 map(self.cons(), |cons| Exp::Cons(cons)),
                 map(self.ident_except_infopr(), |ident| Exp::Ident(ident)),
@@ -46,30 +62,61 @@ impl Parser {
                     )),
                     |(_, _, exp, _, _)| exp,
                 ),
-                self.blockexp(),
+                map(
+                    tuple((
+                        tag(define::TUPLE_OPEN),
+                        multispace0,
+                        self.exp(),
+                        multispace0,
+                        tag(define::TUPLE_DELIMITER),
+                        multispace0,
+                        tag(define::TUPLE_CLOSE),
+                    )),
+                    |(_, _, exp, _, _, _, _)| Exp::Tuple(vec![exp]),
+                ),
+                map(
+                    tuple((
+                        tag(define::TUPLE_OPEN),
+                        multispace0,
+                        self.exp(),
+                        many1(map(
+                            tuple((
+                                multispace0,
+                                tag(define::TUPLE_DELIMITER),
+                                multispace0,
+                                self.exp(),
+                            )),
+                            |(_, _, _, exp)| exp,
+                        )),
+                        multispace0,
+                        tag(define::TUPLE_CLOSE),
+                    )),
+                    |(_, _, exp, exp_vec, _, _)| {
+                        let mut result = vec![exp];
+                        for v in exp_vec {
+                            result.push(v);
+                        }
+                        Exp::Tuple(result)
+                    },
+                ),
+                clone.blockexp(),
                 self.fnexp(),
             ))(s)
         }
     }
     pub fn appexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        |s: &str| {
-            map(
-                tuple((
-                    self.atexp(),
-                    many0(map(tuple((space1, self.atexp())), |(_, exp)| exp)),
-                )),
-                |(exp, exp_vec)| {
-                    if 0 < exp_vec.len() {
-                        let mut result = Exp::App(Box::new(exp), Box::new(exp_vec[0].clone()));
-                        for i in 1..exp_vec.len() {
-                            result = Exp::App(Box::new(result), Box::new(exp_vec[i].clone()));
-                        }
-                        result
-                    } else {
-                        exp
-                    }
-                },
-            )(s)
+        move |s: &str| {
+            let (s, exp) = self.atexp()(s)?;
+            let (s, exp_vec) = many0(map(tuple((space1, self.atexp())), |(_, exp)| exp))(s)?;
+            if 0 < exp_vec.len() {
+                let mut result = Exp::App(Box::new(exp), Box::new(exp_vec[0].clone()));
+                for i in 1..exp_vec.len() {
+                    result = Exp::App(Box::new(result), Box::new(exp_vec[i].clone()));
+                }
+                Ok((s, result))
+            } else {
+                Ok((s, exp))
+            }
         }
     }
     pub fn infexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
@@ -87,7 +134,24 @@ impl Parser {
         }
     }
     pub fn exp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        move |s: &str| alt((self.infexp(), self.untypedexp()))(s)
+        |s: &str| {
+            map(
+                tuple((
+                    alt((self.infexp(), self.untypedexp())),
+                    opt(map(
+                        tuple((space0, tag(define::TYPE_ANNOTATION), space0, self.ty())),
+                        |(_, _, _, ty)| ty,
+                    )),
+                )),
+                |(exp, ty_opt)| {
+                    if let Some(ty) = ty_opt {
+                        Exp::TypeAnnotated(Box::new(exp), ty)
+                    } else {
+                        exp
+                    }
+                },
+            )(s)
+        }
     }
 
     pub fn untypedexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
@@ -98,7 +162,7 @@ impl Parser {
             )(s)
         }
     }
-    pub fn blockexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+    pub fn blockexp(&mut self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
         |s: &str| {
             map(
                 tuple((
@@ -118,45 +182,124 @@ impl Parser {
             map(
                 tuple((
                     tag(define::FN),
+                    multispace1,
+                    self.fnrule(),
                     many0(map(
-                        tuple((space1, self.ident_except_infopr())),
-                        |(_, ident)| ident,
+                        tuple((multispace0, tag(define::FN_OR), multispace0, self.fnrule())),
+                        |(_, _, _, fnrule)| fnrule,
                     )),
-                    space0,
-                    tag(define::FN_ARROW),
-                    space0,
-                    self.exp(),
                 )),
-                |(_, args, _, _, _, exp)| Exp::Fn(args, Box::new(exp)),
+                |(_, _, fnrule, fnrule_vec)| {
+                    let mut result = vec![fnrule];
+                    for v in fnrule_vec {
+                        result.push(v);
+                    }
+                    Exp::Fn(result)
+                },
             )(s)
         }
     }
 
-    pub fn reginfexp(&mut self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
-        let clone = self.clone();
-        move |s: &str| {
-            let ident_except_infopr = clone.ident_except_infopr();
+    pub fn fnrule(
+        &self,
+    ) -> impl FnMut(&str) -> IResult<&str, Fn, VerboseError<&str>> + '_ {
+        |s: &str| {
             map(
                 tuple((
-                    alt((
-                        map(tag(define::INFIX), |_| true),
-                        map(tag(define::INFIXR), |_| false),
-                    )),
-                    space1,
-                    self.int(),
-                    space1,
-                    ident_except_infopr,
+                    self.fnpats(),
+                    multispace0,
+                    tag(define::FN_ARROW),
+                    multispace0,
+                    self.exp(),
                 )),
-                |(is_left, _, d, _, identifier)| {
-                    let pred = d as usize;
-                    self.push_infix(is_left, pred, identifier.clone());
-                    Exp::RegInfix(InfOpr {
-                        is_left: is_left,
-                        pred: pred,
-                        opr: identifier,
-                    })
+                |(fnpats, _, _, _, exp)| Fn(fnpats, exp),
+            )(s)
+        }
+    }
+    pub fn fnpats(
+        &self,
+    ) -> impl FnMut(&str) -> IResult<&str, Vec<Pattern>, VerboseError<&str>> + '_ {
+        |s: &str| many0(map(tuple((multispace0, self.pat())), |(_, pat)| pat))(s)
+    }
+    pub fn pat(&self) -> impl FnMut(&str) -> IResult<&str, Pattern, VerboseError<&str>> + '_ {
+        |s: &str| {
+            map(
+                tuple((
+                    self.atpat(),
+                    opt(map(
+                        tuple((space0, tag(define::TYPE_ANNOTATION), space0, self.ty())),
+                        |(_, _, _, ty)| ty,
+                    )),
+                )),
+                |(pat, ty_opt)| match ty_opt {
+                    Some(ty) => Pattern::TypeAnnotated(Box::new(pat), ty),
+                    None => pat,
                 },
             )(s)
+        }
+    }
+    pub fn atpat(&self) -> impl FnMut(&str) -> IResult<&str, Pattern, VerboseError<&str>> + '_ {
+        |s: &str| {
+            alt((
+                map(tag(define::PAT_WILDCARD), |_| Pattern::Wildcard),
+                map(self.cons(), |cons| Pattern::Cons(cons)),
+                map(self.ident_except_infopr(), |ident| Pattern::Ident(ident)),
+                map(
+                    tuple((
+                        tag(define::TUPLE_OPEN),
+                        multispace0,
+                        tag(define::TUPLE_CLOSE),
+                    )),
+                    |_| Pattern::Tuple(Vec::new()),
+                ),
+                map(
+                    tuple((
+                        tag(define::EXPRESSION_OPEN),
+                        multispace0,
+                        self.pat(),
+                        multispace0,
+                        tag(define::EXPRESSION_CLOSE),
+                    )),
+                    |(_, _, pat, _, _)| pat,
+                ),
+                map(
+                    tuple((
+                        tag(define::TUPLE_OPEN),
+                        multispace0,
+                        self.pat(),
+                        multispace0,
+                        tag(define::TUPLE_DELIMITER),
+                        multispace0,
+                        tag(define::TUPLE_CLOSE),
+                    )),
+                    |(_, _, pat, _, _, _, _)| Pattern::Tuple(vec![pat]),
+                ),
+                map(
+                    tuple((
+                        tag(define::TUPLE_OPEN),
+                        multispace0,
+                        self.pat(),
+                        many1(map(
+                            tuple((
+                                multispace0,
+                                tag(define::TUPLE_DELIMITER),
+                                multispace0,
+                                self.pat(),
+                            )),
+                            |(_, _, _, pat)| pat,
+                        )),
+                        multispace0,
+                        tag(define::TUPLE_CLOSE),
+                    )),
+                    |(_, _, pat, pat_vec, _, _)| {
+                        let mut result = vec![pat];
+                        for v in pat_vec {
+                            result.push(v);
+                        }
+                        Pattern::Tuple(result)
+                    },
+                ),
+            ))(s)
         }
     }
 }

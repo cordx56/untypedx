@@ -11,8 +11,14 @@ use nom::{
 };
 
 use super::exp::Exp;
-use super::InfOpr;
 use super::Parser;
+
+#[derive(Debug, Clone)]
+pub struct InfOpr {
+    pub is_left: bool,
+    pub pred: usize,
+    pub opr: String,
+}
 
 impl Parser {
     pub fn infopr(&self) -> impl FnMut(&str) -> IResult<&str, InfOpr, VerboseError<&str>> + '_ {

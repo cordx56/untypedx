@@ -1,5 +1,6 @@
 pub mod define;
 pub mod parser;
+pub mod interpreter;
 
 use clap::Parser;
 use std::fs;
@@ -14,12 +15,13 @@ struct Args {
 }
 
 fn main() {
-    let p = parser::Parser::new();
+    let args = Args::parse();
+
+    let mut p = parser::Parser::new();
     //println!("{:?}", p.stmts()("test + 1 * 2"));
     //println!("{:?}", p.stmts()("test * 1 - 2"));
     //println!("{:?}", p.stmts()("test 2"));
     //println!("{:?}", p.stmts()("let x = fn x y => x + y"));
-    let args = Args::parse();
 
     let mut buffer = String::new();
     if let Some(path) = args.file {

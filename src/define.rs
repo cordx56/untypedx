@@ -6,11 +6,16 @@ pub static BLOCK_OPEN: &str = "{";
 pub static BLOCK_CLOSE: &str = "}";
 pub static INDEX_OPEN: &str = "[";
 pub static INDEX_CLOSE: &str = "]";
-pub static PARSER_NOT_IDENTIFIER: &str = " \t\r\n(){}[]<>";
+pub static PARSER_NOT_IDENTIFIER: &str = " \t\r\n(){}[]<>:,|";
 pub static STRING_QUOTE: &str = "\"";
 pub static STATEMENT_END: &str = "\n";
 pub static FN: &str = "fn";
 pub static FN_ARROW: &str = "=>";
+pub static FN_OR: &str = "|";
+// Tuple
+pub static TUPLE_OPEN: &str = "(";
+pub static TUPLE_CLOSE: &str = ")";
+pub static TUPLE_DELIMITER: &str = ",";
 
 // Type name
 pub static STRING: &str = "string";
@@ -23,6 +28,10 @@ pub static FUNCTION: &str = "function";
 pub static VOID: &str = "void";
 
 pub static FUNCTION_TYPE_ARROW: &str = "->";
+pub static TYPE_ANNOTATION: &str = ":";
+
+// Pattern match
+pub static PAT_WILDCARD: &str = "_";
 
 // Variables
 pub static TRUE: &str = "true";

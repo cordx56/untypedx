@@ -5,12 +5,7 @@ pub mod infix;
 pub mod ty;
 pub mod stmt;
 
-#[derive(Debug, Clone)]
-pub struct InfOpr {
-    is_left: bool,
-    pred: usize,
-    opr: String,
-}
+use infix::InfOpr;
 
 #[derive(Clone)]
 pub struct Parser {
@@ -21,7 +16,7 @@ impl Parser {
     pub fn new() -> Self {
         let mut parser = Parser { infix: Vec::new() };
 
-        parser.push_infix(true, 2, "=".to_owned());
+        parser.push_infix(true, 3, "=".to_owned());
         parser.push_infix(true, 4, "<>".to_owned());
         parser.push_infix(true, 4, "!=".to_owned());
         parser.push_infix(true, 4, "<".to_owned());

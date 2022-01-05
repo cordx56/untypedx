@@ -11,40 +11,79 @@ use nom::{
 };
 
 use super::exp::Exp;
-use super::Parser;
+use super::{InfOpr, Parser};
 use crate::define;
 
 #[derive(Debug, Clone)]
-pub struct Stmt(Exp);
+pub enum Stmt {
+    Exp(Exp),
+
+    RegInfix(InfOpr, Exp),
+}
 #[derive(Debug, Clone)]
-pub struct Stmts(Vec<Exp>);
+pub struct Stmts(Vec<Stmt>);
 
 impl Parser {
-    pub fn stmt(&self) -> impl FnMut(&str) -> IResult<&str, Stmt, VerboseError<&str>> + '_ {
-        |s: &str| {
+    pub fn stmt(&mut self) -> impl FnMut(&str) -> IResult<&str, Stmt, VerboseError<&str>> + '_ {
+        let clone = self.clone();
+        move |s: &str| {
+            alt((
+                map(
+                    tuple((clone.exp(), space0, tag(define::STATEMENT_END))),
+                    |(exp, _, _)| Stmt::Exp(exp),
+                ),
+                self.reginfexp(),
+            ))(s)
+        }
+    }
+
+    pub fn reginfexp(
+        &mut self,
+    ) -> impl FnMut(&str) -> IResult<&str, Stmt, VerboseError<&str>> + '_ {
+        let clone = self.clone();
+        move |s: &str| {
+            let ident_except_infopr = clone.ident_except_infopr();
             map(
-                tuple((self.exp(), space0, tag(define::STATEMENT_END))),
-                |(exp, _, _)| Stmt(exp),
+                tuple((
+                    alt((
+                        map(tag(define::INFIX), |_| true),
+                        map(tag(define::INFIXR), |_| false),
+                    )),
+                    space1,
+                    self.int(),
+                    space1,
+                    ident_except_infopr,
+                    space0,
+                    tag(define::EQUAL),
+                    space0,
+                    clone.fnexp(),
+                )),
+                |(is_left, _, d, _, identifier, _, _, _, exp)| {
+                    let pred = d as usize;
+                    self.push_infix(is_left, pred, identifier.clone());
+                    Stmt::RegInfix(
+                        InfOpr {
+                            is_left: is_left,
+                            pred: pred,
+                            opr: identifier,
+                        },
+                        exp,
+                    )
+                },
             )(s)
         }
     }
 
-    pub fn stmts(&self) -> impl FnMut(&str) -> IResult<&str, Stmts, VerboseError<&str>> + '_ {
+    pub fn stmts(&mut self) -> impl FnMut(&str) -> IResult<&str, Stmts, VerboseError<&str>> + '_ {
         |s: &str| {
-            map(
-                tuple((
-                    many0(map(tuple((multispace0, self.stmt())), |(_, stmt)| stmt.0)),
-                    multispace0,
-                    opt(self.exp()),
-                )),
-                |(stmts, _, exp_opt)| {
-                    let mut vec = stmts;
-                    if let Some(exp) = exp_opt {
-                        vec.push(exp);
-                    }
-                    Stmts(vec)
-                },
-            )(s)
+            let (s, stmts) = many0(map(tuple((multispace0, self.stmt())), |(_, stmt)| stmt))(s)?;
+            let (s, _) = multispace0(s)?;
+            let (s, exp_opt) = opt(self.exp())(s)?;
+            let mut result = stmts;
+            if let Some(exp) = exp_opt {
+                result.push(Stmt::Exp(exp));
+            }
+            Ok((s, Stmts(result)))
         }
     }
 }
