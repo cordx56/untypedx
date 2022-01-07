@@ -28,13 +28,13 @@ pub enum Exp {
     App(Box<Exp>, Box<Exp>),
     Inf(Box<Exp>, InfOpr, Box<Exp>),
 
-    Fn(Vec<(Fn)>),
+    Fn(Vec<Fn>),
 
     TypeAnnotated(Box<Exp>, Ty),
 }
 
 #[derive(Debug, Clone)]
-pub struct Fn(Vec<Pattern>, Exp);
+pub struct Fn(pub Vec<Pattern>, pub Exp);
 
 #[derive(Debug, Clone)]
 pub enum Pattern {

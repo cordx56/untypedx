@@ -1,12 +1,14 @@
 pub mod define;
-pub mod parser;
 pub mod interpreter;
+pub mod infer;
+pub mod parser;
 
 use clap::Parser;
+use infer::{Inferer, TypeInference};
+use nom::combinator::all_consuming;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -18,6 +20,8 @@ fn main() {
     let args = Args::parse();
 
     let mut p = parser::Parser::new();
+    let mut i = interpreter::Interpreter::new();
+    let mut inferer = Inferer::new();
     //println!("{:?}", p.stmts()("test + 1 * 2"));
     //println!("{:?}", p.stmts()("test * 1 - 2"));
     //println!("{:?}", p.stmts()("test 2"));
@@ -40,6 +44,34 @@ fn main() {
                     return;
                 }
             }
+        }
+    } else {
+        println!("UnTypedX Interpreter Ver:{}", i.version);
+        loop {
+            if 0 < buffer.len() {
+                print!(". ");
+            } else {
+                print!("> ");
+            }
+            std::io::stdout().flush().ok();
+            std::io::stdin().read_line(&mut buffer).ok();
+            if buffer.len() == 0 {
+                break;
+            }
+            match all_consuming(p.exp())(&buffer.trim()) {
+                Ok(e) => match inferer.analyze(&e.1) {
+                    Ok(result) => {
+                        println!("{}", result);
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                    }
+                },
+                Err(_) => {
+                    continue;
+                }
+            }
+            buffer = String::new();
         }
     }
     println!("{}", buffer);
