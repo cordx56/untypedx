@@ -183,24 +183,26 @@ impl std::fmt::Display for Type {
                 Some(v) => write!(f, "string({})", v),
                 None => write!(f, "string"),
             },
-            Type::Fn(arg, ret) => write!(f, "{} -> {}", arg, ret),
+            Type::Fn(arg, ret) => write!(f, "({} -> {})", arg, ret),
             Type::Union(union_vec) => {
+                write!(f, "(");
                 for i in 0..union_vec.len() {
                     write!(f, "{}", union_vec[i])?;
                     if i != union_vec.len() - 1 {
                         write!(f, " | ")?;
                     }
                 }
-                Ok(())
+                write!(f, ")")
             }
             Type::Tuple(tuple_vec) => {
+                write!(f, "(");
                 for i in 0..tuple_vec.len() {
                     write!(f, "{}", tuple_vec[i])?;
                     if i != tuple_vec.len() - 1 {
                         write!(f, ", ")?;
                     }
                 }
-                Ok(())
+                write!(f, ")")
             }
             _ => write!(f, "{:?}", self),
         }
@@ -220,7 +222,7 @@ pub fn unify(ty1: &Type, ty2: &Type) -> Result<(Type, Type), String> {
     let a = prune(ty1);
     let b = prune(ty2);
     match &a {
-        Type::Variable { id, name, instance } => {
+        Type::Variable { id, name, .. } => {
             if a != b {
                 if occurs_in_type(&a, &b) {
                     return Err("Recursive Unification".to_owned());
@@ -231,38 +233,22 @@ pub fn unify(ty1: &Type, ty2: &Type) -> Result<(Type, Type), String> {
                 name: name.clone(),
                 instance: Some(Box::new(b.clone())),
             };
-            Ok((a, b))
+            Ok((new_a, b))
         }
         _ => match b {
             Type::Variable { .. } => return unify(&b, &a),
             _ => match (&a, &b) {
                 (Type::Bool(va), Type::Bool(vb)) => {
-                    if va != vb {
-                        Err(format!("Static value type mismatch: {} != {}", a, b))
-                    } else {
-                        Ok((Type::Bool(*va), Type::Bool(*vb)))
-                    }
+                    //if va != vb {
+                    //    Err(format!("Static value type mismatch: {} != {}", a, b))
+                    //} else {
+                    Ok((Type::Bool(*va), Type::Bool(*vb)))
+                    //}
                 }
-                (Type::Int(va), Type::Int(vb)) => {
-                    if va != vb {
-                        Err(format!("Static value type mismatch: {} != {}", a, b))
-                    } else {
-                        Ok((Type::Int(*va), Type::Int(*vb)))
-                    }
-                }
-                (Type::Real(va), Type::Real(vb)) => {
-                    if va != vb {
-                        Err(format!("Static value type mismatch: {} != {}", a, b))
-                    } else {
-                        Ok((Type::Real(*va), Type::Real(*vb)))
-                    }
-                }
+                (Type::Int(va), Type::Int(vb)) => Ok((Type::Int(*va), Type::Int(*vb))),
+                (Type::Real(va), Type::Real(vb)) => Ok((Type::Real(*va), Type::Real(*vb))),
                 (Type::String(va), Type::String(vb)) => {
-                    if va != vb {
-                        Err(format!("Static value type mismatch: {} != {}", a, b))
-                    } else {
-                        Ok((Type::String(va.to_owned()), Type::String(vb.to_owned())))
-                    }
+                    Ok((Type::String(va.to_owned()), Type::String(vb.to_owned())))
                 }
                 (Type::Fn(arga, reta), Type::Fn(argb, retb)) => {
                     let arg_unified = unify(&arga, &argb)?;
@@ -304,6 +290,8 @@ pub fn unify(ty1: &Type, ty2: &Type) -> Result<(Type, Type), String> {
                         Ok((Type::Union(res_vec_a), Type::Union(res_vec_b)))
                     }
                 }
+                (Type::Any, _) => Ok((Type::Any, Type::Any)),
+                (_, Type::Any) => Ok((Type::Any, Type::Any)),
                 (_, _) => Err(format!("Type mismatch {} != {}", a, b)),
             },
         },

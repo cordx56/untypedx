@@ -27,5 +27,12 @@ impl Inferer {
                 )),
             ),
         );
+        self.context.env[0].insert(
+            define::LET.to_owned(),
+            Type::Fn(
+                Box::new(Type::Any),
+                Box::new(Type::Any),
+            ),
+        );
     }
 }
