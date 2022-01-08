@@ -255,7 +255,6 @@ impl Inferer {
                 for va in va_vec {
                     if let Ok(_) = self.unify(va, b) {
                         types.push(va);
-                        println!("{}", self.display_type(va));
                     }
                 }
                 self.types[a] = Type::Union(types);
@@ -312,7 +311,6 @@ impl Inferer {
                 let arg_type = self.analyze(arg, non_generic)?;
                 let ret_type = self.new_type_variable();
                 let new_func_type = self.push_new_type(Type::Fn(arg_type, ret_type));
-                println!("new_func_type: {}", self.display_type(new_func_type));
                 self.unify(new_func_type, func_type)?;
                 Ok(ret_type)
             }
