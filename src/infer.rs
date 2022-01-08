@@ -1,5 +1,7 @@
 pub mod builtin;
 
+use std::collections::HashMap;
+
 use crate::interpreter::{Context, ScopeType};
 use crate::parser::cons::Cons;
 use crate::parser::exp::{Exp, Pattern};
@@ -26,11 +28,6 @@ pub enum Type {
     },
 }
 
-pub trait TypeInference {
-    fn new_type_variable(&mut self) -> Type;
-    fn analyze(&mut self, exp: &Exp) -> Result<Type, String>;
-}
-
 pub struct Inferer {
     pub context: Context<Type>,
     pub next_type_variable_id: usize,
@@ -47,8 +44,8 @@ impl Inferer {
     }
 }
 
-impl TypeInference for Inferer {
-    fn new_type_variable(&mut self) -> Type {
+impl Inferer {
+    pub fn new_type_variable(&mut self) -> Type {
         let ty = Type::Variable {
             id: self.next_type_variable_id,
             name: None,
@@ -57,36 +54,88 @@ impl TypeInference for Inferer {
         self.next_type_variable_id += 1;
         ty
     }
-    fn analyze(&mut self, exp: &Exp) -> Result<Type, String> {
+    pub fn get_type(&mut self, ident: &str, non_generic: &[Type]) -> Result<Type, String> {
+        if let Some(ty) = self.context.search_identifier(ident) {
+            let cloned = ty.clone();
+            Ok(self.fresh(&cloned, non_generic))
+        } else {
+            Err(format!("{} is undefined", ident))
+        }
+    }
+    pub fn freshrec(
+        &mut self,
+        t: &Type,
+        non_generic: &[Type],
+        mappings: &mut HashMap<usize, Type>,
+    ) -> Type {
+        let pruned = prune(t);
+        match &pruned {
+            Type::Variable { id, .. } => {
+                if is_generic(&pruned, non_generic) {
+                    if !mappings.contains_key(id) {
+                        mappings.insert(*id, self.new_type_variable());
+                    }
+                    mappings[id].clone()
+                } else {
+                    pruned
+                }
+            }
+            Type::Fn(arg, ret) => Type::Fn(
+                Box::new(self.freshrec(arg, non_generic, mappings)),
+                Box::new(self.freshrec(ret, non_generic, mappings)),
+            ),
+            Type::Union(type_vec) => {
+                let mut result = Vec::new();
+                for ty in type_vec {
+                    result.push(self.freshrec(ty, non_generic, mappings));
+                }
+                Type::Union(result)
+            }
+            Type::Tuple(type_vec) => {
+                let mut result = Vec::new();
+                for ty in type_vec {
+                    result.push(self.freshrec(ty, non_generic, mappings));
+                }
+                Type::Union(result)
+            }
+            _ => pruned,
+        }
+    }
+    pub fn fresh(&mut self, t: &Type, non_generic: &[Type]) -> Type {
+        let mut mappings = HashMap::new();
+        return self.freshrec(t, non_generic, &mut mappings);
+    }
+
+    pub fn analyze(&mut self, exp: &Exp, non_generic: &[Type]) -> Result<Type, String> {
         match exp {
             Exp::Cons(cons) => match cons {
                 Cons::Int(value) => Ok(Type::Int(Some(*value))),
                 Cons::Real(value) => Ok(Type::Real(Some(*value))),
                 Cons::String(value) => Ok(Type::String(Some(value.to_owned()))),
             },
-            Exp::Ident(ident) => match self.context.search_identifier(ident) {
-                Some(ident_type) => Ok(ident_type.clone()),
-                None => Ok(Type::Any),
+            Exp::Ident(ident) => match self.get_type(ident, non_generic) {
+                Ok(ident_type) => Ok(ident_type.clone()),
+                Err(_) => Ok(Type::Any),
             },
             Exp::Tuple(exp_vec) => {
                 let mut result = Vec::new();
                 for v in exp_vec {
-                    let x = self.analyze(v)?;
+                    let x = self.analyze(v, non_generic)?;
                     result.push(x);
                 }
                 Ok(Type::Tuple(result))
             }
 
             Exp::App(func, arg) => {
-                let func_type = self.analyze(func)?;
-                let arg_type = self.analyze(arg)?;
-                let result_type = self.new_type_variable();
+                let func_type = self.analyze(func, non_generic)?;
+                let arg_type = self.analyze(arg, non_generic)?;
+                let ret_type = self.new_type_variable();
                 match unify(
-                    &Type::Fn(Box::new(arg_type), Box::new(result_type)),
+                    &Type::Fn(Box::new(arg_type), Box::new(ret_type)),
                     &func_type,
                 ) {
-                    Ok((fn_type, _)) => match fn_type {
-                        Type::Fn(_, result_type) => Ok(*result_type),
+                    Ok(fn_type) => match fn_type {
+                        Type::Fn(_, ret_type) => Ok(*ret_type),
                         _ => Err("not a function type".to_owned()),
                     },
                     Err(e) => Err(e),
@@ -94,26 +143,27 @@ impl TypeInference for Inferer {
             }
 
             Exp::Inf(arg1, infopr, arg2) => {
-                let func_type;
-                match self.context.search_identifier(&infopr.opr) {
-                    Some(ident_type) => func_type = ident_type.clone(),
-                    None => return Err(format!("Infix function {} not found", infopr.opr)),
-                }
-                let arg1_type = self.analyze(arg1)?;
+                let func_type =  self.get_type(&infopr.opr, non_generic)?;
+                let arg1_type = self.analyze(arg1, non_generic)?;
                 let mid_ret_type = self.new_type_variable();
-                let (mid_fn_type, _) = unify(
+                let mid_fn_type = unify(
                     &Type::Fn(Box::new(arg1_type), Box::new(mid_ret_type)),
                     &func_type,
                 )?;
-                let arg2_type = self.analyze(arg2)?;
+                let mid_ret_type;
+                match mid_fn_type {
+                    Type::Fn(_, ret_type) => mid_ret_type = ret_type,
+                    _ => return Err("Not a function type".to_owned()),
+                }
+                let arg2_type = self.analyze(arg2, non_generic)?;
                 let ret_type = self.new_type_variable();
                 match unify(
                     &Type::Fn(Box::new(arg2_type), Box::new(ret_type)),
-                    &mid_fn_type,
+                    &mid_ret_type,
                 ) {
-                    Ok((fn_type, _)) => match fn_type {
+                    Ok(fn_type) => match fn_type {
                         Type::Fn(_, ret_type) => Ok(*ret_type),
-                        _ => Err("not a function type".to_owned()),
+                        _ => Err("Not a function type".to_owned()),
                     },
                     Err(e) => Err(e),
                 }
@@ -123,21 +173,29 @@ impl TypeInference for Inferer {
                 self.context.push_new_scope(ScopeType::Function);
                 let mut union_vec = Vec::new();
                 for func in func_vec {
-                    let arg_type = self.new_type_variable();
+                    let mut new_non_generic = non_generic.to_vec();
+                    let mut arg_types = Vec::new();
                     for pat in &func.0 {
                         match pat {
                             Pattern::Wildcard => {}
                             Pattern::Ident(ident) => {
                                 let last_scope_index = self.context.env.len() - 1;
-                                let new_type_var = self.new_type_variable();
+                                let arg_type = self.new_type_variable();
+                                new_non_generic.push(arg_type.clone());
+                                arg_types.push(arg_type.clone());
                                 self.context.env[last_scope_index]
-                                    .insert(ident.to_owned(), new_type_var);
+                                    .insert(ident.to_owned(), arg_type);
                             }
                             _ => return Err("Not implemented".to_owned()),
                         }
                     }
-                    let ret_type = self.analyze(&func.1)?;
-                    union_vec.push(ret_type);
+                    let ret_type = self.analyze(&func.1, &new_non_generic)?;
+
+                    let mut fn_type = ret_type;
+                    for v in arg_types.iter().rev() {
+                        fn_type = Type::Fn(Box::new(v.clone()), Box::new(fn_type));
+                    }
+                    union_vec.push(fn_type);
                 }
                 self.context.pop_scope();
                 if union_vec.len() == 1 {
@@ -147,7 +205,7 @@ impl TypeInference for Inferer {
                 }
             }
 
-            Exp::TypeAnnotated(exp, ty) => Err("not implemented".to_owned()),
+            Exp::TypeAnnotated(exp, ty) => Err("Not implemented".to_owned()),
             _ => Ok(Type::Any),
         }
     }
@@ -212,13 +270,13 @@ impl std::fmt::Display for Type {
 pub fn prune(ty: &Type) -> Type {
     if let Type::Variable { instance, .. } = ty {
         if let Some(v) = instance {
-            return *(v.clone());
+            return prune(v);
         }
     }
     return ty.clone();
 }
 
-pub fn unify(ty1: &Type, ty2: &Type) -> Result<(Type, Type), String> {
+pub fn unify(ty1: &Type, ty2: &Type) -> Result<Type, String> {
     let a = prune(ty1);
     let b = prune(ty2);
     match &a {
@@ -228,70 +286,74 @@ pub fn unify(ty1: &Type, ty2: &Type) -> Result<(Type, Type), String> {
                     return Err("Recursive Unification".to_owned());
                 }
             }
-            let new_a = Type::Variable {
-                id: *id,
-                name: name.clone(),
-                instance: Some(Box::new(b.clone())),
-            };
-            Ok((new_a, b))
+            Ok(b)
         }
         _ => match b {
             Type::Variable { .. } => return unify(&b, &a),
             _ => match (&a, &b) {
                 (Type::Bool(va), Type::Bool(vb)) => {
-                    //if va != vb {
-                    //    Err(format!("Static value type mismatch: {} != {}", a, b))
-                    //} else {
-                    Ok((Type::Bool(*va), Type::Bool(*vb)))
-                    //}
+                    if va == vb {
+                        Ok(Type::Bool(*va))
+                    } else {
+                        Ok(Type::Bool(None))
+                    }
                 }
-                (Type::Int(va), Type::Int(vb)) => Ok((Type::Int(*va), Type::Int(*vb))),
-                (Type::Real(va), Type::Real(vb)) => Ok((Type::Real(*va), Type::Real(*vb))),
+                (Type::Int(va), Type::Int(vb)) => {
+                    if va == vb {
+                        Ok(Type::Int(*va))
+                    } else {
+                        Ok(Type::Int(None))
+                    }
+                }
+                (Type::Real(va), Type::Real(vb)) => {
+                    if va == vb {
+                        Ok(Type::Real(*va))
+                    } else {
+                        Ok(Type::Real(None))
+                    }
+                }
                 (Type::String(va), Type::String(vb)) => {
-                    Ok((Type::String(va.to_owned()), Type::String(vb.to_owned())))
+                    if va == vb {
+                        Ok(Type::String(va.to_owned()))
+                    } else {
+                        Ok(Type::String(None))
+                    }
                 }
                 (Type::Fn(arga, reta), Type::Fn(argb, retb)) => {
                     let arg_unified = unify(&arga, &argb)?;
                     let ret_unified = unify(&reta, &retb)?;
-                    Ok((
-                        Type::Fn(Box::new(arg_unified.0), Box::new(ret_unified.0)),
-                        Type::Fn(Box::new(arg_unified.1), Box::new(ret_unified.1)),
-                    ))
+                    Ok(Type::Fn(Box::new(arg_unified), Box::new(ret_unified)))
                 }
                 (Type::Union(va_vec), Type::Union(vb_vec)) => {
                     if va_vec.len() != vb_vec.len() {
                         Err(format!("Type mismatch {} != {}", a, b))
                     } else {
-                        let mut res_vec_a = Vec::new();
-                        let mut res_vec_b = Vec::new();
+                        let mut res_vec = Vec::new();
 
                         for i in 0..va_vec.len() {
                             let res = unify(&va_vec[i], &vb_vec[i])?;
-                            res_vec_a.push(res.0);
-                            res_vec_b.push(res.1);
+                            res_vec.push(res);
                         }
 
-                        Ok((Type::Union(res_vec_a), Type::Union(res_vec_b)))
+                        Ok(Type::Union(res_vec))
                     }
                 }
                 (Type::Tuple(va_vec), Type::Tuple(vb_vec)) => {
                     if va_vec.len() != vb_vec.len() {
                         Err(format!("Type mismatch {} != {}", a, b))
                     } else {
-                        let mut res_vec_a = Vec::new();
-                        let mut res_vec_b = Vec::new();
+                        let mut res_vec = Vec::new();
 
                         for i in 0..va_vec.len() {
                             let res = unify(&va_vec[i], &vb_vec[i])?;
-                            res_vec_a.push(res.0);
-                            res_vec_b.push(res.1);
+                            res_vec.push(res);
                         }
 
-                        Ok((Type::Union(res_vec_a), Type::Union(res_vec_b)))
+                        Ok(Type::Tuple(res_vec))
                     }
                 }
-                (Type::Any, _) => Ok((Type::Any, Type::Any)),
-                (_, Type::Any) => Ok((Type::Any, Type::Any)),
+                (Type::Any, _) => Ok(Type::Any),
+                (_, Type::Any) => Ok(Type::Any),
                 (_, _) => Err(format!("Type mismatch {} != {}", a, b)),
             },
         },
@@ -327,5 +389,12 @@ pub fn occurs_in(tyvar: &Type, tosearch: &Type) -> bool {
             false
         }
         _ => false,
+    }
+}
+
+pub fn is_generic(t: &Type, non_generic: &[Type]) -> bool {
+    match non_generic.iter().find(|x| x == &t) {
+        Some(_) => false,
+        None => true,
     }
 }

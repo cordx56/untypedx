@@ -4,7 +4,7 @@ pub mod infer;
 pub mod parser;
 
 use clap::Parser;
-use infer::{Inferer, TypeInference};
+use infer::{Inferer};
 use nom::combinator::all_consuming;
 use std::fs;
 use std::io;
@@ -59,7 +59,7 @@ fn main() {
                 break;
             }
             match all_consuming(p.exp())(&buffer.trim()) {
-                Ok(e) => match inferer.analyze(&e.1) {
+                Ok(e) => match inferer.analyze(&e.1, &[]) {
                     Ok(result) => {
                         println!("{}", result);
                     }
