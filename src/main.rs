@@ -9,6 +9,7 @@ use nom::combinator::all_consuming;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
+use std::collections::HashSet;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -59,9 +60,9 @@ fn main() {
                 break;
             }
             match all_consuming(p.exp())(&buffer.trim()) {
-                Ok(e) => match inferer.analyze(&e.1, &[]) {
+                Ok(e) => match inferer.analyze(&e.1, &HashSet::new()) {
                     Ok(result) => {
-                        println!("{}", result);
+                        println!("{}", inferer.display_type(result));
                     }
                     Err(e) => {
                         eprintln!("{}", e);

@@ -24,8 +24,8 @@ impl Parser {
     pub fn cons(&self) -> impl FnMut(&str) -> IResult<&str, Cons, VerboseError<&str>> + '_ {
         |s: &str| {
             alt((
-                map(self.int(), |int| Cons::Int(int)),
                 map(self.real(), |real| Cons::Real(real)),
+                map(self.int(), |int| Cons::Int(int)),
                 map(self.string(), |string| Cons::String(string)),
             ))(s)
         }
@@ -50,7 +50,19 @@ impl Parser {
     pub fn real<'a>(
         &self,
     ) -> impl FnMut(&'a str) -> IResult<&'a str, f64, VerboseError<&'a str>> + 'a {
-        |s: &str| double(s)
+        |s: &str| {
+            map(
+                tuple((opt(tag(define::MINUS_SIGN)), digit1, tag("."), digit1)),
+                |(minus, int, _, frac)| {
+                    let val: f64 = format!("{}.{}", int, frac).parse().unwrap();
+                    if minus.is_some() {
+                        -1.0 * val
+                    } else {
+                        val
+                    }
+                },
+            )(s)
+        }
     }
     pub fn string(&self) -> impl FnMut(&str) -> IResult<&str, String, VerboseError<&str>> + '_ {
         |s: &str| alt((self.string_empty(), self.string_content()))(s)
