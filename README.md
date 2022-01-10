@@ -1,4 +1,4 @@
-# UnTypedX
+# [WIP] UnTypedX
 UnTypedX is gradually typed language.
 
 "untyped" is not good to stand for dynamically typed, but "untyped" is simple so we use this keyword.
