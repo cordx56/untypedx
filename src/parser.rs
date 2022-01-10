@@ -2,8 +2,8 @@ pub mod cons;
 pub mod exp;
 pub mod ident;
 pub mod infix;
-pub mod ty;
 pub mod stmt;
+pub mod ty;
 
 use infix::InfOpr;
 
@@ -38,6 +38,34 @@ impl Parser {
             opr: opr,
         });
         self.infix.sort_by(|a, b| b.opr.len().cmp(&a.opr.len()));
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Loc {
+    row: usize,
+    col: usize,
+}
+
+pub fn get_location(input: &str, current: &str) -> Loc {
+    let offset = input.len() - current.len();
+    let prefix = &input.as_bytes()[..offset];
+    let row_number = prefix.iter().filter(|&&b| b == b'\n').count() + 1;
+    let row_begin = prefix
+        .iter()
+        .rev()
+        .position(|&b| b == b'\n')
+        .map(|p| offset - p)
+        .unwrap_or(0);
+    let line = input[row_begin..]
+        .lines()
+        .next()
+        .unwrap_or(&input[row_begin..])
+        .trim_end();
+    let col_number = line.len() - current.len() + 1;
+    Loc {
+        row: row_number,
+        col: col_number,
     }
 }
 
