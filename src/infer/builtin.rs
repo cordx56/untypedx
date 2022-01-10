@@ -30,7 +30,7 @@ impl Inferer {
             fn_int_real_real,
             fn_real_int_real,
             fn_string_string_string,
-        ]));
+        ].into_iter().collect()));
         self.context.env[0].insert(define::ADD.to_owned(), add_fn_type);
 
         self.context.env[0].insert("add".to_owned(), add_fn_type);

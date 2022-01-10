@@ -17,9 +17,8 @@ pub enum Type {
     String(Option<String>),
 
     Fn(TypeId, TypeId),
-    UserDefined(String),
     Any,
-    Union(Vec<TypeId>),
+    Union(HashSet<TypeId>),
     Tuple(Vec<TypeId>),
 
     // Type variable
@@ -81,7 +80,51 @@ impl Inferer {
         self.types.push(t);
         id
     }
-    pub fn get_type(
+    pub fn type_deep_copy(&mut self, tid: TypeId) -> TypeId {
+        match self.types[tid].clone() {
+            Type::Bool(v) => self.push_new_type(Type::Bool(v)),
+            Type::Int(v) => self.push_new_type(Type::Int(v)),
+            Type::Real(v) => self.push_new_type(Type::Real(v)),
+            Type::String(v) => self.push_new_type(Type::String(v)),
+            Type::Fn(arg, ret) => {
+                let new_arg = self.type_deep_copy(arg);
+                let new_ret = self.type_deep_copy(ret);
+                self.push_new_type(Type::Fn(new_arg, new_ret))
+            }
+            Type::Any => tid,
+            Type::Union(type_set) => {
+                let mut new_type_set = HashSet::new();
+                for v in type_set.iter() {
+                    new_type_set.insert(self.type_deep_copy(*v));
+                }
+                self.push_new_type(Type::Union(new_type_set))
+            }
+            Type::Tuple(type_vec) => {
+                let mut new_type_vec = Vec::new();
+                for v in type_vec {
+                    new_type_vec.push(self.type_deep_copy(v));
+                }
+                self.push_new_type(Type::Tuple(new_type_vec))
+            }
+            Type::Variable { instance, .. } => {
+                if let Some(i) = instance {
+                    let new_instance = self.type_deep_copy(i);
+                    self.push_new_type(Type::Variable {
+                        id: self.types.len(),
+                        name: None,
+                        instance: Some(new_instance),
+                    })
+                } else {
+                    self.push_new_type(Type::Variable {
+                        id: self.types.len(),
+                        name: None,
+                        instance: None,
+                    })
+                }
+            }
+        }
+    }
+    pub fn get_type_id_from_ident(
         &mut self,
         ident: &str,
         non_generic: &HashSet<TypeId>,
@@ -133,9 +176,9 @@ impl Inferer {
                 self.push_new_type(Type::Fn(arg_type, ret_type))
             }
             Type::Union(type_vec) => {
-                let mut result = Vec::new();
+                let mut result = HashSet::new();
                 for ty in type_vec {
-                    result.push(self.freshrec(ty, non_generic, mappings));
+                    result.insert(self.freshrec(ty, non_generic, mappings));
                 }
                 self.push_new_type(Type::Union(result))
             }
@@ -144,7 +187,7 @@ impl Inferer {
                 for ty in type_vec {
                     result.push(self.freshrec(ty, non_generic, mappings));
                 }
-                self.push_new_type(Type::Union(result))
+                self.push_new_type(Type::Tuple(result))
             }
             _ => pruned,
         }
@@ -196,12 +239,18 @@ impl Inferer {
         let a = self.prune(ty1);
         let b = self.prune(ty2);
         match (self.types[a].clone(), self.types[b].clone()) {
-            (Type::Variable { .. }, _) => {
+            (Type::Variable { instance, .. }, _) => {
                 if a != b {
                     if self.occurs_in_type(a, b) {
                         return Err("Recursive Unification".to_owned());
                     }
-                    self.types[a].set_instance(b);
+                    if let Some(i) = instance {
+                        let union_type =
+                            self.push_new_type(Type::Union(vec![i, b].into_iter().collect()));
+                        self.types[a].set_instance(union_type);
+                    } else {
+                        self.types[a].set_instance(b);
+                    }
                 }
                 Ok(())
             }
@@ -242,19 +291,30 @@ impl Inferer {
             (Type::Union(va_vec), Type::Union(vb_vec)) => {
                 // ?
                 if va_vec.len() != vb_vec.len() {
-                    Err(format!("Type mismatch {} != {}", a, b))
+                    Err(format!(
+                        "Type mismatch {} != {}",
+                        self.display_type(a),
+                        self.display_type(b)
+                    ))
                 } else {
-                    for i in 0..va_vec.len() {
-                        self.unify(va_vec[i], vb_vec[i])?;
-                    }
-                    Ok(())
+                    Err(format!(
+                        "Type mismatch {} != {}",
+                        self.display_type(a),
+                        self.display_type(b)
+                    ))
                 }
             }
             (Type::Union(va_vec), _) => {
-                let mut types = Vec::new();
+                let mut types = HashSet::new();
                 for va in va_vec {
+                    println!(
+                        "try unify: {} and {}",
+                        self.display_type(va),
+                        self.display_type(b)
+                    );
                     if let Ok(_) = self.unify(va, b) {
-                        types.push(va);
+                        println!("Ok!");
+                        types.insert(va);
                     }
                 }
                 self.types[a] = Type::Union(types);
@@ -288,7 +348,7 @@ impl Inferer {
                 Cons::Real(value) => Ok(self.push_new_type(Type::Real(Some(*value)))),
                 Cons::String(value) => Ok(self.push_new_type(Type::String(Some(value.to_owned())))),
             },
-            Exp::Ident(ident) => match self.get_type(ident, non_generic) {
+            Exp::Ident(ident) => match self.get_type_id_from_ident(ident, non_generic) {
                 Ok(tid) => Ok(tid),
                 Err(_) => {
                     let new_type_variable = self.new_type_variable();
@@ -316,7 +376,7 @@ impl Inferer {
             }
 
             Exp::Inf(arg1, infopr, arg2) => {
-                let func_type = self.get_type(&infopr.opr, non_generic)?;
+                let func_type = self.get_type_id_from_ident(&infopr.opr, non_generic)?;
                 let arg1_type = self.analyze(arg1, non_generic)?;
                 let mid_ret_type = self.new_type_variable();
                 let mid_func_type = self.push_new_type(Type::Fn(arg1_type, mid_ret_type));
@@ -330,7 +390,7 @@ impl Inferer {
 
             Exp::Fn(func_vec) => {
                 self.context.push_new_scope(ScopeType::Function);
-                let mut union_vec = Vec::new();
+                let mut union_set = HashSet::new();
                 for func in func_vec {
                     let mut new_non_generic = non_generic.clone();
                     let mut arg_types = Vec::new();
@@ -354,13 +414,13 @@ impl Inferer {
                     for v in arg_types.iter().rev() {
                         fn_type = self.push_new_type(Type::Fn(*v, fn_type));
                     }
-                    union_vec.push(fn_type);
+                    union_set.insert(fn_type);
                 }
                 self.context.pop_scope();
-                if union_vec.len() == 1 {
-                    Ok(union_vec[0])
+                if union_set.len() == 1 {
+                    Ok(*union_set.iter().next().unwrap())
                 } else {
-                    Ok(self.push_new_type(Type::Union(union_vec)))
+                    Ok(self.push_new_type(Type::Union(union_set)))
                 }
             }
 
@@ -392,12 +452,18 @@ impl Inferer {
                 self.display_type(*arg),
                 self.display_type(*ret)
             ),
-            Type::Union(type_vec) => {
+            Type::Union(type_set) => {
                 let mut res = "(".to_owned();
-                for i in 0..type_vec.len() {
-                    res.push_str(&self.display_type(type_vec[i]));
-                    if i != type_vec.len() - 1 {
+                let mut iter = type_set.iter();
+                if let Some(v) = iter.next() {
+                    res.push_str(&self.display_type(*v));
+                }
+                loop {
+                    if let Some(v) = iter.next() {
                         res.push_str(" | ");
+                        res.push_str(&self.display_type(*v));
+                    } else {
+                        break;
                     }
                 }
                 res.push_str(")");
