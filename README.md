@@ -12,7 +12,7 @@ println (add 1.1 2)
 
 ## Language Specification
 ### Reserved
-`->`, `=>`, `:`, `fn`, `infix`, `infixr`
+`->`, `=>`, `:`, `fn`, `infix`, `infixr`, `let`
 ### Special Characters
 These Characters are not allowed in identifier.
 
@@ -27,6 +27,7 @@ These Characters are not allowed in identifier.
                         | "(" <multispace>* <exp> <multispace>* "," <multispace>* ")"
                         | "(" <multispace>* <exp> (<multispace>* "," <multispace>* <exp>)+ <multispace>* ")"
                         | <blockexp>
+                        | <letexp>
                         | <fnexp>
 <appexp>               := <atexp> (<space>+ <atexp>)*
 <infexp>               := <appexp> (<space>* <infopr> <space>* <appexp>)*
@@ -40,6 +41,7 @@ These Characters are not allowed in identifier.
 
 <untypedexp>           := "untyped" <space>+ <exp>
 <blcokexp>             := "{" <multispace>* <stmts> <multispace>* "}"
+<letexp>               := "let" <space>+ <ident_except_infopr>
 <fnexp>                := "fn" <multispace>+ <fnrule> (<multispace>* "|" <multispace>* <fnrule>)*
 <fnrule>               := <fnpats> <multispace>* "=>" <multispace>* <exp>
 <fnpats>               := (<multispace>* <pat>)*
