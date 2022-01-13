@@ -2,9 +2,12 @@ pub mod builtin;
 
 use std::collections::{HashMap, HashSet};
 
+use crate::define;
 use crate::interpreter::{Context, ScopeType};
 use crate::parser::cons::Cons;
 use crate::parser::exp::{Exp, Pattern};
+use crate::parser::stmt::{Stmt, Stmts};
+use crate::parser::ty::Ty;
 
 type TypeId = usize;
 
@@ -137,6 +140,34 @@ impl Inferer {
         }
     }
 
+    pub fn get_type_id_from_type_annotation(&mut self, ty: &Ty) -> TypeId {
+        match ty {
+            Ty::Name(name) => {
+                if name == define::INT {
+                    self.push_new_type(Type::Int(None))
+                } else if name == define::REAL {
+                    self.push_new_type(Type::Real(None))
+                } else if name == define::STRING {
+                    self.push_new_type(Type::Real(None))
+                } else {
+                    self.push_new_type(Type::Any)
+                }
+            }
+            Ty::Tuple(ty_vec) => {
+                let mut type_id_vec = Vec::new();
+                for v in ty_vec {
+                    type_id_vec.push(self.get_type_id_from_type_annotation(v))
+                }
+                self.push_new_type(Type::Tuple(type_id_vec))
+            }
+            Ty::Fn(arg_ty, ret_ty) => {
+                let arg_type_id = self.get_type_id_from_type_annotation(&**arg_ty);
+                let ret_type_id = self.get_type_id_from_type_annotation(&**ret_ty);
+                self.push_new_type(Type::Fn(arg_type_id, ret_type_id))
+            }
+        }
+    }
+
     pub fn prune(&mut self, t: TypeId) -> TypeId {
         if let Type::Variable { instance, .. } = self.types[t].clone() {
             if let Some(v) = instance {
@@ -162,10 +193,7 @@ impl Inferer {
         match self.types[pruned].clone() {
             Type::Variable { .. } => {
                 if self.is_generic(pruned, non_generic) {
-                    mappings
-                        .entry(pruned)
-                        .or_insert(self.new_type_variable())
-                        .clone()
+                    *mappings.entry(pruned).or_insert(self.new_type_variable())
                 } else {
                     pruned
                 }
@@ -244,45 +272,15 @@ impl Inferer {
                     if self.occurs_in_type(a, b) {
                         return Err("Recursive Unification".to_owned());
                     }
-                    if let Some(i) = instance {
-                        let union_type =
-                            self.push_new_type(Type::Union(vec![i, b].into_iter().collect()));
-                        self.types[a].set_instance(union_type);
-                    } else {
-                        self.types[a].set_instance(b);
-                    }
+                    self.types[a].set_instance(b);
                 }
                 Ok(())
             }
             (_, Type::Variable { .. }) => self.unify(b, a),
-            (Type::Bool(va), Type::Bool(vb)) => {
-                if va != vb {
-                    self.types[a] = Type::Bool(None);
-                    self.types[b] = Type::Bool(None);
-                }
-                Ok(())
-            }
-            (Type::Int(va), Type::Int(vb)) => {
-                if va != vb {
-                    self.types[a] = Type::Int(None);
-                    self.types[b] = Type::Int(None);
-                }
-                Ok(())
-            }
-            (Type::Real(va), Type::Real(vb)) => {
-                if va != vb {
-                    self.types[a] = Type::Real(None);
-                    self.types[b] = Type::Real(None);
-                }
-                Ok(())
-            }
-            (Type::String(va), Type::String(vb)) => {
-                if va != vb {
-                    self.types[a] = Type::String(None);
-                    self.types[b] = Type::String(None);
-                }
-                Ok(())
-            }
+            (Type::Bool(va), Type::Bool(vb)) => Ok(()),
+            (Type::Int(va), Type::Int(vb)) => Ok(()),
+            (Type::Real(va), Type::Real(vb)) => Ok(()),
+            (Type::String(va), Type::String(vb)) => Ok(()),
             (Type::Fn(arga, reta), Type::Fn(argb, retb)) => {
                 self.unify(arga, argb)?;
                 self.unify(reta, retb)?;
@@ -307,13 +305,14 @@ impl Inferer {
             (Type::Union(va_vec), _) => {
                 let mut types = HashSet::new();
                 for va in va_vec {
-                    println!(
-                        "try unify: {} and {}",
-                        self.display_type(va),
-                        self.display_type(b)
-                    );
-                    if let Ok(_) = self.unify(va, b) {
-                        println!("Ok!");
+                    let freshed_b = self.fresh(b, &HashSet::new());
+                    //println!(
+                    //    "try unify: {} and {}",
+                    //    self.display_type(va),
+                    //    self.display_type(freshed_b)
+                    //);
+                    if let Ok(_) = self.unify(va, freshed_b) {
+                        //println!("Ok!");
                         types.insert(va);
                     }
                 }
@@ -323,7 +322,11 @@ impl Inferer {
             (_, Type::Union(_)) => self.unify(b, a),
             (Type::Tuple(va_vec), Type::Tuple(vb_vec)) => {
                 if va_vec.len() != vb_vec.len() {
-                    Err(format!("Type mismatch {} != {}", a, b))
+                    Err(format!(
+                        "Type mismatch {} != {}",
+                        self.display_type(a),
+                        self.display_type(b)
+                    ))
                 } else {
                     for i in 0..va_vec.len() {
                         self.unify(va_vec[i], vb_vec[i])?;
@@ -348,15 +351,7 @@ impl Inferer {
                 Cons::Real(value) => Ok(self.push_new_type(Type::Real(Some(*value)))),
                 Cons::String(value) => Ok(self.push_new_type(Type::String(Some(value.to_owned())))),
             },
-            Exp::Ident(ident) => match self.get_type_id_from_ident(ident, non_generic) {
-                Ok(tid) => Ok(tid),
-                Err(_) => {
-                    let new_type_variable = self.new_type_variable();
-                    let last_scope_index = self.context.env.len() - 1;
-                    self.context.env[last_scope_index].insert(ident.to_owned(), new_type_variable);
-                    Ok(new_type_variable)
-                }
-            },
+            Exp::Ident(ident) => self.get_type_id_from_ident(ident, non_generic),
             Exp::Tuple(exp_vec) => {
                 let mut result = Vec::new();
                 for v in exp_vec {
@@ -372,7 +367,7 @@ impl Inferer {
                 let ret_type = self.new_type_variable();
                 let new_func_type = self.push_new_type(Type::Fn(arg_type, ret_type));
                 self.unify(new_func_type, func_type)?;
-                Ok(ret_type)
+                Ok(func_type)
             }
 
             Exp::Inf(arg1, infopr, arg2) => {
@@ -388,6 +383,12 @@ impl Inferer {
                 Ok(ret_type)
             }
 
+            Exp::Let(var_name) => {
+                let new_type_variable = self.new_type_variable();
+                let last_scope_index = self.context.env.len() - 1;
+                self.context.env[last_scope_index].insert(var_name.to_owned(), new_type_variable);
+                Ok(new_type_variable)
+            }
             Exp::Fn(func_vec) => {
                 self.context.push_new_scope(ScopeType::Function);
                 let mut union_set = HashSet::new();
@@ -424,9 +425,28 @@ impl Inferer {
                 }
             }
 
-            Exp::TypeAnnotated(exp, ty) => Err("Not implemented".to_owned()),
+            Exp::TypeAnnotated(exp, ty) => {
+                let exp_type = self.analyze(exp, non_generic)?;
+                let annotation = self.get_type_id_from_type_annotation(ty);
+                self.unify(exp_type, annotation)?;
+                Ok(exp_type)
+            }
             _ => Ok(self.push_new_type(Type::Any)),
         }
+    }
+
+    pub fn infer(&mut self, stmts: &Stmts) -> Result<TypeId, String> {
+        let mut result = Err("No return".to_owned());
+        for s in &stmts.0 {
+            match s {
+                Stmt::Exp(e) => match self.analyze(e, &HashSet::new()) {
+                    Ok(tid) => result = Ok(tid),
+                    Err(e) => return Err(e),
+                },
+                Stmt::RegInfix(infopr, e) => {}
+            }
+        }
+        result
     }
 
     pub fn display_type(&self, tid: TypeId) -> String {

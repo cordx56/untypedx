@@ -37,5 +37,10 @@ impl Inferer {
         let any_type = self.push_new_type(Type::Any);
         let fn_any_any = self.push_new_type(Type::Fn(any_type, any_type));
         self.context.env[0].insert(define::LET.to_owned(), fn_any_any);
+
+        let assign_type_variable = self.new_type_variable();
+        let assign_fn_mid_type = self.push_new_type(Type::Fn(assign_type_variable, assign_type_variable));
+        let assign_fn_type = self.push_new_type(Type::Fn(assign_type_variable, assign_fn_mid_type));
+        self.context.env[0].insert(define::ASSIGN.to_owned(), assign_fn_type);
     }
 }

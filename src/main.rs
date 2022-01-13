@@ -1,24 +1,33 @@
 pub mod define;
-pub mod interpreter;
 pub mod infer;
+pub mod interpreter;
 pub mod parser;
 
-use clap::Parser;
-use infer::{Inferer};
+use clap::{Parser, Subcommand};
+use infer::Inferer;
 use nom::combinator::all_consuming;
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
-use std::collections::HashSet;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(about, version, author)]
-struct Args {
-    file: Option<String>,
+struct Cli {
+    #[clap(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run code
+    Run { file: Option<String> },
+    /// Perform type inference
+    Infer { file: Option<String> },
 }
 
 fn main() {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
     let mut p = parser::Parser::new();
     let mut i = interpreter::Interpreter::new();
@@ -29,57 +38,115 @@ fn main() {
     //println!("{:?}", p.stmts()("let x = fn x y => x + y"));
 
     let mut buffer = String::new();
-    if let Some(path) = args.file {
-        if path == "-" {
-            let stdin = io::stdin();
-            let mut handle = stdin.lock();
-            handle.read_to_string(&mut buffer).ok();
-        } else {
-            match fs::read_to_string(path) {
-                Ok(s) => {
-                    buffer = s;
+    match &cli.command {
+        Some(Commands::Run { file }) => {
+            if let Some(path) = file {
+                match file_read(path) {
+                    Ok(buffer) => {
+                        let presult = p.stmts()(&buffer);
+                        println!("{:?}", presult);
+                    }
+                    Err(e) => eprintln!("{}", e),
                 }
-                Err(e) => {
-                    eprintln!("File read error");
-                    eprintln!("{}", e);
-                    return;
-                }
+            } else {
+                println!("UnTypedX Interpreter Ver:{}", i.version);
+                interactive_mode(move |buffer: &str| match all_consuming(p.exp())(buffer) {
+                    Ok(e) => match inferer.analyze(&e.1, &HashSet::new()) {
+                        Ok(result) => {
+                            println!("{}", inferer.display_type(result));
+                            false
+                        }
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            false
+                        }
+                    },
+                    Err(_) => true,
+                });
             }
         }
-    } else {
-        println!("UnTypedX Interpreter Ver:{}", i.version);
-        loop {
-            if 0 < buffer.len() {
-                print!(". ");
+        Some(Commands::Infer { file }) => {
+            if let Some(path) = file {
+                match file_read(path) {
+                    Ok(buffer) => match all_consuming(p.stmts())(&buffer) {
+                        Ok(pr) => match inferer.infer(&pr.1) {
+                            Ok(tid) => println!(
+                                "Type inference success!\nReturn type: {}",
+                                inferer.display_type(tid)
+                            ),
+                            Err(e) => eprintln!("Error found!\n{}", e),
+                        },
+                        Err(_) => eprintln!("Parse error!"),
+                    },
+                    Err(e) => eprintln!("{}", e),
+                }
             } else {
-                print!("> ");
+                println!("UnTypedX Interpreter Ver:{}", i.version);
+                interactive_mode(move |buffer: &str| match all_consuming(p.exp())(buffer) {
+                    Ok(e) => match inferer.analyze(&e.1, &HashSet::new()) {
+                        Ok(result) => {
+                            println!("{}", inferer.display_type(result));
+                            false
+                        }
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            false
+                        }
+                    },
+                    Err(_) => true,
+                })
             }
-            std::io::stdout().flush().ok();
-            std::io::stdin().read_line(&mut buffer).ok();
-            if buffer.len() == 0 {
-                break;
-            }
-            match all_consuming(p.exp())(&buffer.trim()) {
+        }
+        None => {
+            println!("UnTypedX Interpreter Ver:{}", i.version);
+            interactive_mode(move |buffer: &str| match all_consuming(p.exp())(buffer) {
                 Ok(e) => match inferer.analyze(&e.1, &HashSet::new()) {
                     Ok(result) => {
                         println!("{}", inferer.display_type(result));
+                        false
                     }
                     Err(e) => {
                         eprintln!("{}", e);
+                        false
                     }
                 },
-                Err(_) => {
-                    continue;
-                }
-            }
-            buffer = String::new();
+                Err(_) => true,
+            });
         }
     }
-    println!("{}", buffer);
-    let result = p.stmts()(&buffer);
-    println!("{:?}", result);
-    if let Err(nom::Err::Error(e)) = result {
-        let verbose_error = nom::error::convert_error(&buffer as &str, e);
-        println!("{}", verbose_error);
+}
+
+fn file_read(path: &str) -> Result<String, String> {
+    if path == "-" {
+        let mut buffer = String::new();
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+        handle.read_to_string(&mut buffer).ok();
+        Ok(buffer)
+    } else {
+        match fs::read_to_string(path) {
+            Ok(s) => Ok(s),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+fn interactive_mode(mut func: impl FnMut(&str) -> bool) {
+    let mut buffer = String::new();
+    loop {
+        if 0 < buffer.len() {
+            print!(". ");
+        } else {
+            print!("> ");
+        }
+        std::io::stdout().flush().ok();
+        std::io::stdin().read_line(&mut buffer).ok();
+        if buffer.trim_end() == ":q" {
+            break;
+        }
+        if func(&buffer.trim()) {
+            continue;
+        }
+        buffer = String::new();
     }
 }

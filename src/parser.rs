@@ -6,6 +6,7 @@ pub mod stmt;
 pub mod ty;
 
 use infix::InfOpr;
+use crate::define;
 
 #[derive(Clone)]
 pub struct Parser {
@@ -16,7 +17,7 @@ impl Parser {
     pub fn new() -> Self {
         let mut parser = Parser { infix: Vec::new() };
 
-        parser.push_infix(true, 3, "=".to_owned());
+        parser.push_infix(true, 3, define::ASSIGN.to_owned());
         parser.push_infix(true, 4, "<>".to_owned());
         parser.push_infix(true, 4, "!=".to_owned());
         parser.push_infix(true, 4, "<".to_owned());

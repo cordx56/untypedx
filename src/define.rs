@@ -20,7 +20,7 @@ pub static TUPLE_DELIMITER: &str = ",";
 // Type name
 pub static STRING: &str = "string";
 pub static INT: &str = "int";
-pub static FLOAT: &str = "float";
+pub static REAL: &str = "real";
 pub static BOOL: &str = "bool";
 pub static VECTOR: &str = "vector";
 pub static MAP: &str = "map";
@@ -75,7 +75,7 @@ pub static LOOP: &str = "loop";
 pub static INFIX: &str = "infix";
 pub static INFIXR: &str = "infixr";
 
-pub static IDENTIFIER_NOT_ALLOWED: &[&str] = &[FUNCTION_TYPE_ARROW, FN_ARROW, FN, INFIX, INFIXR];
+pub static IDENTIFIER_NOT_ALLOWED: &[&str] = &[FUNCTION_TYPE_ARROW, FN_ARROW, FN, INFIX, INFIXR, LET];
 
 // Error messages
 pub static IDENTIFIER_NOT_DEFINED: &str = "Identifier not defined";

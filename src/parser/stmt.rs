@@ -21,7 +21,7 @@ pub enum Stmt {
     RegInfix(InfOpr, Exp),
 }
 #[derive(Debug, Clone)]
-pub struct Stmts(Vec<Stmt>);
+pub struct Stmts(pub Vec<Stmt>);
 
 impl Parser {
     pub fn stmt(&mut self) -> impl FnMut(&str) -> IResult<&str, Stmt, VerboseError<&str>> + '_ {

@@ -28,6 +28,7 @@ pub enum Exp {
     App(Box<Exp>, Box<Exp>),
     Inf(Box<Exp>, InfOpr, Box<Exp>),
 
+    Let(String),
     Fn(Vec<Fn>),
 
     TypeAnnotated(Box<Exp>, Ty),
@@ -100,6 +101,7 @@ impl Parser {
                     },
                 ),
                 clone.blockexp(),
+                self.letexp(),
                 self.fnexp(),
             ))(s)
         }
@@ -177,6 +179,15 @@ impl Parser {
         }
     }
 
+    pub fn letexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
+        |s: &str| {
+            map(
+                tuple((tag(define::LET), space1, self.ident_except_infopr())),
+                |(_, _, ident)| Exp::Let(ident),
+            )(s)
+        }
+    }
+
     pub fn fnexp(&self) -> impl FnMut(&str) -> IResult<&str, Exp, VerboseError<&str>> + '_ {
         move |s: &str| {
             map(
@@ -200,9 +211,7 @@ impl Parser {
         }
     }
 
-    pub fn fnrule(
-        &self,
-    ) -> impl FnMut(&str) -> IResult<&str, Fn, VerboseError<&str>> + '_ {
+    pub fn fnrule(&self) -> impl FnMut(&str) -> IResult<&str, Fn, VerboseError<&str>> + '_ {
         |s: &str| {
             map(
                 tuple((
